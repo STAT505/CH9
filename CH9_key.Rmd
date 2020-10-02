@@ -1,0 +1,223 @@
+---
+title: "Prediction and Bayesian Inference"
+output: pdf_document
+---
+
+\renewcommand{\vec}[1]{\mathbf{#1}}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.height = 3, fig.width = 5, fig.align = 'center')
+library(tidyverse) 
+library(gridExtra)
+library(rstanarm)
+library(arm)
+set.seed(09272020)
+```
+
+
+### Bayesian Inference
+
+Bayesian inference has three steps that are fundamentally different than classical estimation.
+
+\vfill
+
+*1. Additional information can be included using a prior distribution (for parameters)*
+
+\vfill
+
+*2. The data, sampling model, and prior are combined to form a posterior distribution for model parameters, which are generally summarized with simulation.*
+
+\vfill
+
+*3. Uncertainty in the posterior distribution can be propogated to get simulation-based predictions for unobserved or future outcomes.*
+
+\vfill
+
+### Propogating Uncertainty
+
+Recall the linear model fit for the beer data.
+```{r, message = F}
+beer <- read_csv('http://math.montana.edu/ahoegh/Data/Brazil_cerveja.csv')
+stan_fit <- stan_glm(consumed ~ max_tmp, data = beer, refresh = 0)
+print(stan_fit)
+```
+
+\vfill
+
+While the parameters are summarized with a single point estimator (and a standard error), the model actually contains a collection of posterior simulations that capture the uncertainty in the model.
+
+\newpage
+
+```{r}
+post_sims <- as.matrix(stan_fit)
+head(post_sims)
+```
+
+\vfill
+
+By default, the `stan_glm()` output calculates the scaled median absolute deviation to summarize uncertainty.
+
+\vfill
+
+Formally the scaled median absolute deviation is 
+
+$$median_{i=1}^N |z_i - M| \times 1.483$$
+where $M$ is the median and $z_i$ are the simulation values. *The 1.483 recovers the standard error with the normal distribution (and the nice properties associated with that). The author recommend the median absolute deviation due to computational stability.*
+
+\vfill
+
+The point estimate and `standard errors` can be calculated directly
+
+```{r}
+apply(post_sims, 2, median)
+apply(post_sims, 2, mad)
+```
+
+\newpage
+
+#### Visualizing Uncertainty
+
+We can visualize uncertainty in the parameter estimates using the simulation results directly.
+
+```{r, warning = F}
+post_sims %>% as.data.frame %>% 
+  pivot_longer(cols = c('(Intercept)', 'max_tmp', 'sigma')) %>% 
+  ggplot(aes( x= value)) + geom_histogram(bins = 50) + 
+  facet_wrap(.~ name, scales = 'free') + theme_minimal() + xlim(0, NA)
+```
+\vfill
+
+Furthermore, each iteration results in a joint set of parameters that could be used to create a regression line.
+\vfill
+```{r, echo = F}
+regression_lines <- post_sims %>% as.data.frame %>% dplyr::select(-sigma)
+
+beer %>% ggplot(aes(y=consumed, x = max_tmp)) + geom_point() +
+  geom_abline(aes(intercept = regression_lines[1,1], slope = regression_lines[1,2]), color = 'red') +
+  geom_abline(aes(intercept = regression_lines[2,1], slope = regression_lines[2,2]), color = 'red') + 
+  geom_abline(aes(intercept = regression_lines[3,1], slope = regression_lines[3,2]), color = 'red') +
+  geom_abline(aes(intercept = regression_lines[4,1], slope = regression_lines[4,2]), color = 'red') + 
+  geom_abline(aes(intercept = regression_lines[5,1], slope = regression_lines[5,2]), color = 'red') + 
+  ggtitle('First few iterations for regression line') + 
+  theme_minimal()
+```
+
+\newpage
+
+#### Contrasts and Functions of Parameters
+
+Bayesian inference also allows easy computation of contrasts and more generally functions of parameters.
+
+\vfill
+
+Consider the contrast (predicted mean difference) between a *weekend day with `max_tmp` = 20 and a weekday with `max_tmp` = 30. This would be a difficult problem to solve analytically, but it is straightforward using simulation.*
+
+\vfill
+
+Note that a contrast of this sort (or any time), could also be calculated from a classical perspective, but, strictly speaking, the simulation approach is not permitted. Rather an analytical calculation, likely with a normal approximation (delta method?) would be necessary.
+
+\vfill
+1. Fit the model.
+```{r}
+stan_fit2 <- stan_glm(consumed ~ weekend + max_tmp, data = beer, refresh = 0)
+print(stan_fit2)
+```
+
+\vfill
+
+2. Extract the simulations.
+
+\vfill
+```{r}
+contrast_sims <- as.matrix(stan_fit2)
+```
+
+\vfill
+
+3. Compare differences
+\vfill
+```{r}
+diff_consumed <- as.numeric(contrast_sims %*% matrix(c(1,1,20,0)) - 
+  contrast_sims %*% matrix(c(1,0,30,0))) 
+```
+\vfill
+
+4. Calculate interval and plot difference
+
+```{r, echo = F}
+quantile(diff_consumed, probs = c(.025, .975))
+tibble(diff = diff_consumed) %>% ggplot(aes(x = diff)) + geom_histogram(bins = 100) + xlim(NA, 0) + 
+  ggtitle('Distribution for predicted mean consumption \n 20 degree Weekend - 30 degree Weekday') + theme_minimal() +
+  xlab('Difference (L)') + ylab('') + 
+  theme(axis.ticks.y = element_blank(), 
+        axis.text.y = element_blank(),
+        axis.line.y = element_blank())   
+```
+
+\vfill
+
+### Prediction
+When considering prediction, there are a few different values that can be predicted. For context, consider predicting consumption for max temperature of 25, from the first model that does not consider day of week.
+\vfill
+
+1. point prediction: *at $x^{'}$ would be $\hat{y} = \hat{\beta_0} + \hat{\beta_1} x^{'}$. This is a point prediction, with no consideration of uncertainty - rarely used (imo).*
+\vfill
+```{r}
+x_prime <- tibble(max_tmp = 25)
+predict(stan_fit, newdata = x_prime)
+```
+
+\vfill
+
+2. linear prediction with uncertainty: *at $x^{'}$ would be $\hat{y} = \beta_0 + \beta_1 x^{'}$. This might be a bit of abuse of notation, but we can directly use simulated values of $\beta_0$ and $\beta_1$ and propogate this uncertainty. The interpretation of this is the distribution for the expected or average value of $y$ at $x^{'}$, not an individual point.*
+\vfill
+```{r}
+posterior_linpred(stan_fit, newdata = x_prime) %>% quantile( probs = c(.025, .975))
+```
+
+\vfill
+
+3. predictive distribution for a new observation: *at $x^{'}$ would be $\hat{y} = \beta_0 + \beta_1 x^{'} + error$. This gives us the predictive distribution for a new observation, rather than the average response at a specific value*.
+\vfill
+```{r}
+posterior_predict(stan_fit, newdata = x_prime) %>% quantile( probs = c(.025, .975))
+```
+
+\vfill
+
+*Each of these values could easily be computed using the simulations with a little matrix algebra in R.*
+
+\newpage
+
+### Priors
+
+With Bayesian analysis, a major positive (and potentially a negative) is the ability to specify a prior distribution that prior belief about the parameters.
+\vfill
+
+While this is not a formal Bayesian class, and we won't deviate much from the default priors, it is still important to understand how they impact our results.
+
+\vfill
+
+With a normal prior distribution and a normal likelihood (sampling model), the Maximum A'Posteriori (MAP) estimator can be written as a weighted average of the prior mean and the sample mean. Formally, this is
+
+$$\theta_{MAP} = \left(\frac{1}{\sigma^2_{prior}} \theta_{prior} +  \frac{1}{\frac{\sigma^2_{data}}{n}} \bar{y} \right)/ \left(\frac{1}{\sigma^2_{prior}} +  \frac{1}{\frac{\sigma^2_{data}}{n}} \right)$$
+\vfill
+Furthermore, the standard error of $\theta$ is
+
+$$se_{bayes} = \frac{1}{\sqrt{\frac{1}{\sigma^2_{prior}}+\frac{1}{\frac{\sigma^2_{data}}{n}}}}$$
+
+\vfill
+
+*With a uninformative prior $\theta \sim N(\mu, \sigma^2 \rightarrow \infty),$ the point estimate and standard errors converge to those from the classical, least squares setting.*
+
+\vfill
+
+The `stan_glm()` function does not actually use uninformative priors, but rather uses __weakly informative__ priors. This corresponds to a normal prior with scaled standard deviation of 2.5.
+
+\vfill
+
+For more details on the `stan_glm()` prior structure, see [http://mc-stan.org/rstanarm/articles/priors.html](http://mc-stan.org/rstanarm/articles/priors.html)
+
+\vfill
+
+*In our work, if you do use `stan_glm()` make sure to report the your prior. (For project 2, this would technically be part of the model statement.)*
