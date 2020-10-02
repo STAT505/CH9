@@ -1,0 +1,107 @@
+---
+title: "Prediction and Bayesian Inference: Coding Exercise"
+output: pdf_document
+---
+
+\renewcommand{\vec}[1]{\mathbf{#1}}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.height = 3, fig.width = 5, fig.align = 'center')
+library(tidyverse) 
+library(gridExtra)
+library(rstanarm)
+library(arm)
+set.seed(09272020)
+```
+
+
+
+#### Contrasts and Functions of Parameters
+
+Bayesian inference also allows easy computation of contrasts and more generally functions of parameters.
+
+\vfill
+
+Consider the contrast (predicted mean difference) between a weekend day with `max_tmp` = 20 and a weekday with `max_tmp` = 30. This would be a difficult problem to solve analytically, but it is straightforward using simulation.
+
+\vfill
+
+Note that a contrast of this sort (or any time), could also be calculated from a classical perspective, but, strictly speaking, the simulation approach is not permitted. Rather an analytical calculation, likely with a normal approximation (delta method?) would be necessary.
+
+\vfill
+1. Fit the model.
+```{r}
+beer <- read_csv('http://math.montana.edu/ahoegh/Data/Brazil_cerveja.csv')
+
+stan_fit2 <- stan_glm(consumed ~ weekend + max_tmp, data = beer, refresh = 0)
+print(stan_fit2)
+```
+
+\vfill
+
+2. Extract the simulations.
+
+\vfill
+```{r}
+contrast_sims <- as.matrix(stan_fit2)
+```
+
+\vfill
+
+3. Compare differences
+\vfill
+```{r}
+diff_consumed <- as.numeric(contrast_sims %*% matrix(c(1,1,20,0)) - 
+  contrast_sims %*% matrix(c(1,0,30,0))) 
+```
+\vfill
+
+4. Calculate interval and plot difference
+
+```{r, echo = F}
+quantile(diff_consumed, probs = c(.025, .975))
+tibble(diff = diff_consumed) %>% ggplot(aes(x = diff)) + geom_histogram(bins = 100) + xlim(NA, 0) + 
+  ggtitle('Distribution for predicted mean consumption \n 20 degree Weekend - 30 degree Weekday') + theme_minimal() +
+  xlab('Difference (L)') + ylab('') + 
+  theme(axis.ticks.y = element_blank(), 
+        axis.text.y = element_blank(),
+        axis.line.y = element_blank())   
+```
+
+
+### Prediction
+1. Predict the expected (or average) consumption for max temperature of 25, weekend = 1, and precip = 0. 
+\vfill
+
+```{r}
+pred_model <- stan_glm(consumed ~ max_tmp + weekend + precip, data = beer, refresh = 0)
+print(pred_model)
+x_prime <- tibble(max_tmp = 25, weekend = 1, precip = 0)
+predictions <- posterior_linpred(pred_model, newdata = x_prime) %>% as.numeric()
+predictions %>% quantile( probs = c(.025, .975))
+predictions
+```
+
+\vfill
+
+2. Predict the consumption for a new day with a max temperature of 25, weekday = 1, and precip = 0. 
+\vfill
+```{r}
+daily_pred <- posterior_predict(pred_model, newdata = x_prime) %>% as.numeric()
+daily_pred %>% quantile( probs = c(.025, .975))
+```
+
+\vfill
+
+3. Create a figure to show a comparison of the predicted distributions.
+```{r}
+library(ggridges)
+tibble( values = c(predictions,daily_pred), `Prediction Type` = rep(c('average prediction','individual prediction'),
+                                                                 each = length(predictions))) %>% 
+  ggplot(aes(x = values, y = `Prediction Type`, fill = `Prediction Type`)) + geom_density_ridges2(scale = 1) + 
+  scale_y_discrete(expand = c(0.01, .01,0.01,.7)) + ggtitle('Predicted Beer Consumption in Brazil \n for weekend with max temp of 25 and no precip') + 
+  ylab('') + xlab('liters of beer') +
+  theme_bw() + theme(legend.position = "none") +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) 
+```
+

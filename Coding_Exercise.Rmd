@@ -1,0 +1,57 @@
+---
+title: "Prediction and Bayesian Inference: Coding Exercise"
+output: pdf_document
+---
+
+\renewcommand{\vec}[1]{\mathbf{#1}}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.height = 3, fig.width = 5, fig.align = 'center')
+library(tidyverse) 
+library(gridExtra)
+library(rstanarm)
+library(arm)
+set.seed(10012020)
+```
+
+
+
+#### Contrasts and Functions of Parameters
+
+Bayesian inference also allows easy computation of contrasts and more generally functions of parameters.
+
+\vfill
+
+Consider the contrast (predicted mean difference) between a weekend day with `max_tmp` = 20 and a weekday with `max_tmp` = 30. This would be a difficult problem to solve analytically, but it is straightforward using simulation.
+
+\vfill
+
+Note that a contrast of this sort (or any time), could also be calculated from a classical perspective, but, strictly speaking, the simulation approach is not permitted. Rather an analytical calculation, likely with a normal approximation (delta method?) would be necessary.
+
+\vfill
+1. Fit the model.
+
+\vfill
+
+2. Extract the simulations.
+
+\vfill
+
+3. Compare differences
+\vfill
+
+4. Calculate interval and plot difference
+
+
+### Prediction
+1. Predict the expected (or average) consumption for max temperature of 25, weekend = 1, and precip = 0. 
+\vfill
+
+\vfill
+
+2. Predict the consumption for a new day with a max temperature of 25, weekday = 1, and precip = 0. 
+\vfill
+
+\vfill
+
+3. Create a figure to show a comparison of the predicted distributions.
